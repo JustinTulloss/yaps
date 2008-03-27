@@ -101,7 +101,7 @@ class SessionlessApp(object):
             except KeyError, ValueError:
                 # This means no controller was found with this continuation
                 # id. For example it may have timed out.
-                start_response('500 Error', [])
+                start_response('500 Error', [('Content-Type','text/html')])
                 return ['Continuation id invalid']
         else:
             # In a real application, url-to-controller mapping would be done
@@ -123,7 +123,7 @@ class SessionlessApp(object):
         
         # Again, since this is just an example - just hard code the content-type.
         # In reality, this would be up to the controller.
-        start_response('200 OK', [('Content-type','text/html')])
+        start_response('200 OK', [('Content-Type','text/html')])
         
         return [data]
 
@@ -249,5 +249,10 @@ def guess_the_number(req):
 
 if __name__ == '__main__':
     import stacklesswsgi
-    s = stacklesswsgi.Server(('127.0.0.1', 8080), SessionlessApp())
+    from paste.exceptions.errormiddleware import ErrorMiddleware
+    exc_wrapped = ErrorMiddleware(SessionlessApp())
+    exc_wrapped.debug_mode = True
+    import wsgiref.validate
+    verify = wsgiref.validate.validator(exc_wrapped)
+    s = stacklesswsgi.Server(('127.0.0.1', 8080), verify)
     s.start()
