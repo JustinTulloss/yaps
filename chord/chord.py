@@ -9,6 +9,7 @@ import socket
 import struct
 from struct import Struct
 from SimpleXMLRPCServer import SimpleXMLRPCServer
+from xmlrpclib import Server
 import cPickle
 import threading
 import hashlib
@@ -58,27 +59,29 @@ class Chord(object):
 
 class Node(object):
     def __init__(self, ip, port):
-        self.id = hash((ip, port))
+        self.addr = (ip, port)
+        self.id = hash(self.addr)
+        self.url = 'http://%s:%d' % self.addr
         self.ip = ip
         self.port = port
         self._successor = None
         self._predecessor = None
         self.finger = range(0, KSIZE-1)
-        self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.start =  int((self.id + 1) % 2**KSIZE)
 
     def find_successor(self, id):
         """
         query this node for a successor
         """
-        return self.find_predecessor(id).successor
+        node = self.find_predecessor(id).successor
+        return node.url
 
     def find_predecessor(self, id):
         """
         query this node for its predecessor
         """
         p = self;
-        while p.id < id<= p.successor.id:
+        while p.id < id <= p.successor.id:
             p = p.closest_precceding_finger(id)
         return p
 
@@ -89,27 +92,31 @@ class Node(object):
         return self
 
     def join(self, seedNode):
-        if seedNode == None:
+        # I know this looks bad, but using the type avoids an RPC request
+        if type(seedNode) != type(None):
+            self.init_finger_tables(seedNode)
+        else:
             for i in range(0, KSIZE-1):
                 self.finger[i] = self
-            predecessor = self
-        else:
-            self.init_finger_tables(seedNode)
+            self._predecessor = self
+            self._successor = self
 
     def init_finger_tables(self, seedNode):
-        self.finger[0] = self.node
-        self.successor = seedNode.find_successor(self.finger[1].start)
-        self.predecessor = self.node.successor.predecessor
-        self.successor.predecessor = self.node
-        for i in range(0, KSIZE-2):
-            next_start = int((self.node.id+2**i)%2**KSIZE)
-            if self.node.id <= next_start < self.finger[i].id:
+        self.finger[0] = self
+        next_start = int((self.id+2)%2**(KSIZE-1))
+        self.successor = seedNode.find_successor(next_start)
+        self.predecessor = self.get_successor().get_predecessor()
+        print self.successor, type(self.predecessor)
+        self.successor.predecessor = self
+        for i in range(0, KSIZE-1):
+            next_start = int((self.id+2**i)%2**(KSIZE-1))
+            if self.id <= next_start < self.finger[i].id:
                 self.finger[i+1].successor = finger[i].successor
             else:
                 self.finger[i+1].successor = seedNode.find_successor(next_start)
 
     def update_others(self):
-        for i in range(1, KSIZE):
+        for i in range(1, KSIZE-1):
             p = self.find_predecessor(self.id-2**(i-1))
             p.update_finger_table(self, i)
 
@@ -117,28 +124,32 @@ class Node(object):
     def update_finger_table(self, node, i):
         if self.id <= node.id < finger[i].id:
             self.finger[i] = node
-            # TODO: Call the node and inform it of the change
             self.predecessor.update_finger_table(node, i)
 
     def get_successor(self):
-        if self._successor == None:
-            self._successor = self.find_successor(self.id)
+        #if self._successor == None:
+        #    self._successor = self.find_successor(self.id)
         return self._successor
 
-    #successor = property(get_successor, None, None, 
-    #"The node adjacent to this node in the ring")
+    def set_successor(self, node):
+        if type(node) == str:
+            self._successor = Server(node)
+        else:
+            self._successor = node
+
+    successor = property(get_successor, set_successor, None, 
+        "The node adjacent to this node in the ring")
 
     def get_predecessor(self):
-        if self._predecessor== None:
-            self._predecessor = self.find_predecessor(self.id)
+        #if self._predecessor== None:
+        #    self._predecessor = self.find_predecessor(self.id)
         return self._predecessor
 
     def set_predecessor(self, node):
         self._predecessor = node
-        # Actually call the node and tell it that its predecessor has changed
 
-    #predecessor = property(get_predecessor, set_predecessor, None, 
-    #    "The node behind this node in the ring")
+    predecessor = property(get_predecessor, set_predecessor, None, 
+        "The node behind this node in the ring")
 
 
 class Chord(object):
@@ -186,7 +197,8 @@ if __name__ == '__main__':
     import netifaces
     ip = netifaces.ifaddresses('eth1')[netifaces.AF_INET][0]['addr']
     c = Chord(ip = ip)
-    d = Chord(ip = ip, port=4091)
+    known = Server('http://'+ip+':4090', allow_none=True)
+    d = Chord(seedNode = known, ip = ip, port=4091)
     #c['trial'] = 45
     import time
     time.sleep(1) # Let the daemon thread finish doing stuff
