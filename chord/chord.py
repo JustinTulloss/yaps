@@ -8,58 +8,17 @@ import logging
 import socket
 import struct
 from struct import Struct
-import pickle
+import cPickle
 import threading
 import hashlib
 
-packet = Struct('!ih')
 
 KSIZE = 32 #Keys are 32 bits for simplicity (that's what python already does)
 
-class ChordBase(object):
-    def __init__(self):
-        # Build finger table
-        self.finger = []
-    def find_successor(self, key):
-        current = self
-        while self.distance(current.id, key) > \
-                self.distance(current.next.id, key):
-            current = current.next
-        return current
-            
-        """
-        next = self.find_predecessor(id)
-        return next.successor
-        """
-
-    def find_predecessor(self, id):
-        next = self.id
-        while next < id <= next.successor:
-            next = next.closest_preceding_finger(id)
-        return next
-
-    def closest_preceding_finger(self, id):
-        for i in range(32, 1):
-            if self.id <= finger[i].node.id <= id:
-                return finger[i].node
-        return self
-
-    def distance(self, id, key):
-        """
-        Returns the distance of the key from the node identified by id
-        """
-        if id == key:
-            return 0
-        elif id < key:
-            return key-id
-        else:
-            return (2**KSIZE)+(key-id)
-        
+"""
 class Chord(object):
     def __init__(self, localstore = True, **kwargs):
-        """
         Inserts self into ring and initializes finger tables
-        """
 
         if localstore:
             self._ls = ChordServer()
@@ -94,14 +53,87 @@ class Chord(object):
 
     def clear(self):
         pass
+"""
 
-class ChordServer(object):
-    def __init__(self, host='localhost'):
-        # Initialize socket
+class Node(object):
+    def __init__(self, ip, port):
+        self.id = hash((ip, port))
+        self.ip = ip
+        self.port = port
+        self._successor = None
+        self._predecessor = None
+        self.finger = range(0, KSIZE-1)
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self._sock.bind((host, 4090))
-        self._sock.listen(4)
+        self.start =  int((self.id + 1) % 2**KSIZE)
 
+    def find_successor(self, id):
+        """
+        query this node for a successor
+        """
+        return self.find_predecessor(id).successor
+
+    def find_predecessor(self, id):
+        """
+        query this node for its predecessor
+        """
+        pass
+
+    def join(self, seedNode):
+        if seedNode == None:
+            for i in range(0, KSIZE-1):
+                self.finger[i] = self
+            predecessor = self
+        else:
+            self.init_finger_tables(seedNode)
+
+    def init_finger_tables(self, seedNode):
+        self.finger[0] = self.node
+        self.successor = seedNode.find_successor(self.finger[1].start)
+        self.predecessor = self.node.successor.predecessor
+        self.successor.predecessor = self.node
+        for i in range(0, KSIZE-2):
+            next_start = int((self.node.id+2**i)%2**KSIZE)
+            if self.node.id <= next_start < self.finger[i].id:
+                self.finger[i+1].successor = finger[i].successor
+            else:
+                self.finger[i+1].successor = seedNode.find_successor(next_start)
+
+    def update_others(self):
+        for i in range(1, KSIZE):
+            p = self.find_predecessor(self.id-2**(i-1))
+            p.update_finger_table(self, i)
+
+
+    def update_finger_table(self, node, i):
+        if self.id <= node.id < finger[i].id:
+            self.finger[i] = node
+            # TODO: Call the node and inform it of the change
+            self.predecessor.update_finger_table(node, i)
+
+    def get_successor(self):
+        if self._successor == None:
+            self._successor = self.find_successor(self, self.id)
+        return self._successor
+
+    successor = property(get_successor, None, None, 
+        "The node adjacent to this node in the ring")
+
+    def get_predecessor(self):
+        if self._predecessor== None:
+            self._predecessor = self.find_predecessor(self, self.id)
+        return self._predecessor
+
+    def set_predecessor(self, node):
+        self._predecessor = node
+        # Actually call the node and tell it that its predecessor has changed
+
+    predecessor = property(get_predecessor, set_predecessor, None, 
+        "The node behind this node in the ring")
+
+
+class Chord(object):
+    def __init__(self, seedNode=None, ip='127.0.0.1', port=4090):
+        self.packet = Struct('!bih')
         # Configure the logger
         logging.basicConfig(
             level = logging.DEBUG,
@@ -110,6 +142,14 @@ class ChordServer(object):
             filemode = 'w'
         )
         self._log = logging.getLogger(__name__+'.ChordServer')
+
+        # Create yourself!
+        self.node = Node(ip = ip, port = port)
+        self.node.join(seedNode)
+        # Initialize socket
+        self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self._sock.bind(('0.0.0.0', port))
+        self._sock.listen(4)
 
         # Initialize thread to serve connections on said socket
         self._running = True
@@ -120,8 +160,9 @@ class ChordServer(object):
     def __del__(self):
         self._running = False
         self._log.info("Closing Socket")
-        self._sock.close()
-
+        if self._sock != None:
+            self._sock.close()
+    
     def accept_loop(self):
         self._log.info("Starting accept loop")
         try:
@@ -141,7 +182,10 @@ class ChordServer(object):
             self._sock.close()
 
 if __name__ == '__main__':
-    c = Chord()
-    c['trial'] = 45
+    import netifaces
+    ip = netifaces.ifaddresses('eth1')[netifaces.AF_INET][0]['addr']
+    c = Chord(ip = ip)
+    d = Chord(ip = ip, port=4091)
+    #c['trial'] = 45
     import time
     time.sleep(1) # Let the daemon thread finish doing stuff
