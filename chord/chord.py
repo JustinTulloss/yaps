@@ -57,39 +57,41 @@ class Chord(object):
         pass
 """
 
+class Messages(object):
+    ID, SUCCESSOR, PREDECESSOR = range(0,3)
+
+cmsgs = Messages()
+
 class Node(object):
     def __init__(self, ip, port):
         self.addr = (ip, port)
         self.id = hash(self.addr)
-        self.url = 'http://%s:%d' % self.addr
         self.ip = ip
         self.port = port
-        self._successor = None
-        self._predecessor = None
         self.finger = range(0, KSIZE-1)
-        self.start =  int((self.id + 1) % 2**KSIZE)
+        self.start =  int((self.id + 1) % 2**(KSIZE-1))
 
-    def find_successor(self, id):
+    def find_successor(self, node, id):
         """
         query this node for a successor
         """
-        node = self.find_predecessor(id).successor
-        return node.url
+        node = self.find_predecessor(node, id)
+        return node
 
     def find_predecessor(self, id):
         """
         query this node for its predecessor
         """
-        p = self;
-        while p.id < id <= p.successor.id:
+        p = self.addr;
+        while self.get_id(p) < id <= self.get_id(self.get_succesor(p))
             p = p.closest_precceding_finger(id)
         return p
 
     def closest_preceding_finger(self, id):
         for i in range(KSIZE-1, 0, -1):
-            if self.id < finger[i].id < id:
+            if self.id < self.get_id(finger[i]) < id:
                 return finger[i]
-        return self
+        return self.addr
 
     def join(self, seedNode):
         # I know this looks bad, but using the type avoids an RPC request
@@ -97,23 +99,18 @@ class Node(object):
             self.init_finger_tables(seedNode)
         else:
             for i in range(0, KSIZE-1):
-                self.finger[i] = self
-            self._predecessor = self
-            self._successor = self
+                self.finger[i] = self.addr
 
     def init_finger_tables(self, seedNode):
-        self.finger[0] = self
-        next_start = int((self.id+2)%2**(KSIZE-1))
-        self.successor = seedNode.find_successor(next_start)
-        self.predecessor = self.get_successor().get_predecessor()
-        print self.successor, type(self.predecessor)
-        self.successor.predecessor = self
+        self.finger[0] = self.find_successor(seedNode, self.start)
+        self._predecessor = self.get_predecessor(self.finger[0])
+        self.set_predecessor(self.finger[0], self.addr)
         for i in range(0, KSIZE-1):
             next_start = int((self.id+2**i)%2**(KSIZE-1))
-            if self.id <= next_start < self.finger[i].id:
-                self.finger[i+1].successor = finger[i].successor
+            if self.id <= next_start < self.get_id(self.finger[i]):
+                self.finger[i+1] = finger[i]
             else:
-                self.finger[i+1].successor = seedNode.find_successor(next_start)
+                self.finger[i+1] = self.find_successor(seedNode, next_start)
 
     def update_others(self):
         for i in range(1, KSIZE-1):
@@ -122,35 +119,22 @@ class Node(object):
 
 
     def update_finger_table(self, node, i):
-        if self.id <= node.id < finger[i].id:
-            self.finger[i] = node
-            self.predecessor.update_finger_table(node, i)
+        pass
 
     def get_successor(self):
-        #if self._successor == None:
-        #    self._successor = self.find_successor(self.id)
-        return self._successor
+        pass
 
     def set_successor(self, node):
-        if type(node) == str:
-            self._successor = Server(node)
-        else:
-            self._successor = node
+        pass
 
-    successor = property(get_successor, set_successor, None, 
-        "The node adjacent to this node in the ring")
-
+    def get_id(self, node):
+        
+        
     def get_predecessor(self):
-        #if self._predecessor== None:
-        #    self._predecessor = self.find_predecessor(self.id)
-        return self._predecessor
+        pass
 
     def set_predecessor(self, node):
-        self._predecessor = node
-
-    predecessor = property(get_predecessor, set_predecessor, None, 
-        "The node behind this node in the ring")
-
+        pass
 
 class Chord(object):
     def __init__(self, seedNode=None, ip='127.0.0.1', port=4090):
