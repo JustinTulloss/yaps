@@ -11,10 +11,11 @@ from struct import Struct
 import Pyro.core
 import Pyro.util
 import Pyro
-Pyro.config.PYRO_MULTITHREADED = 0
+#Pyro.config.PYRO_MULTITHREADED = 0
 import cPickle
 import threading
 import hashlib
+from ctypes import c_uint32 as u
 
 
 KSIZE = 32 #Keys are 32 bits for simplicity (that's what python already does)
@@ -46,6 +47,8 @@ class Chord(object):
     def __delitem__(self, key):
         pass
 
+        if upper <= -2**30:
+            upper = upper + 2**31
     def __repr__(self):
         return "Hello World!"
 
@@ -62,11 +65,11 @@ class Chord(object):
 class Node(Pyro.core.ObjBase):
     def __init__(self, ip, port):
         Pyro.core.ObjBase.__init__(self)
-        self.addr = (ip, port)
-        self.id = hash(self.addr)
+        self.addr = (ip, str(port))
+        #self.id = int(hashlib.sha1(':'.join(self.addr)).hexdigest(),16)
+        self.id = u(hash(self.addr)).value
         self.ip = ip
         self.port = port
-        self._successor = None
         self._predecessor = None
         self.finger = range(0, KSIZE)
         self.start =  int((self.id + 1) % 2**(KSIZE-1))
@@ -82,10 +85,16 @@ class Node(Pyro.core.ObjBase):
         """
         query this node for its predecessor
         """
-        p = self;
-        print p.id, id, p.finger[0].id
-        while not (p.id < id <= p.finger[0].id):
+        p = self.getAttrProxy()
+        lower = 0
+        id = u((id-p.id)%2**KSIZE).value
+        upper = u((p.finger[0].id-p.id-1 % 2**KSIZE)).value
+        while not (lower<id<upper or id==upper):
+            print "looping my ass off because i love it"
             p = p.closest_preceding_finger(id)
+            lower = 0
+            id = u((id-p.id)%2**KSIZE).value
+            upper = u((p.finger[0].id-p.id-1 % 2**KSIZE)).value
         return p
 
     def closest_preceding_finger(self, id):
@@ -107,15 +116,18 @@ class Node(Pyro.core.ObjBase):
     def init_finger_tables(self, seedNode):
         next_start = int((self.id+2)%2**(KSIZE-1))
         try:
+            print seedNode, self.addr
             self.finger[0] = seedNode.find_successor(next_start)
         except Exception, e:
             print ''.join(Pyro.util.getPyroTraceback(e))
         self.successor = self.finger[0]
         self.predecessor = self.finger[0].predecessor
         self.finger[0].predecessor = self.getAttrProxy()
-        for i in range(0, KSIZE-2):
+        for i in range(0, KSIZE-1):
             next_start = int((self.id+2**i)%2**(KSIZE-1))
-            if self.id <= next_start < self.finger[i].id:
+            if u(self.id)< u(next_start) < u(self.finger[i].id) or \
+                    u(self.id) == u(self.finger[i].id):
+
                 self.finger[i+1] = self.finger[i]
             else:
                 self.finger[i+1] = seedNode.find_successor(next_start)
@@ -152,7 +164,6 @@ class Node(Pyro.core.ObjBase):
     def get_id(self):
         return self.id
 
-
 class Chord(object):
     def __init__(self, seedNode=None, ip='127.0.0.1', port=4090):
         # Configure the logger
@@ -176,23 +187,20 @@ class Chord(object):
 
         # Initialize thread to serve connections on said socket
         self._accept_thread = threading.Thread(None, self.accept_loop)
-        #self._accept_thread.setDaemon(True)
+        self._accept_thread.setDaemon(True)
         self._accept_thread.start()
-        print "really ought to be returning"
 
     def accept_loop(self):
         self._log.info("Starting accept loop")
         try:
-            print "Hi"
             self._daemon.requestLoop()
-            print "bye"
         except Exception, e:
             self._log.exception("Exception: %s", e)
             raise
 
 if __name__ == '__main__':
     import netifaces
-    ip = netifaces.ifaddresses('en1')[netifaces.AF_INET][0]['addr']
+    ip = netifaces.ifaddresses('eth1')[netifaces.AF_INET][0]['addr']
     c = Chord(ip = ip)
     known = Pyro.core.getAttrProxyForURI(c._uri)
     d = Chord(seedNode = known, ip = ip, port=4091)
