@@ -1,0 +1,2 @@
+recursive-include testpaste/public *
+recursive-include testpaste/templates *

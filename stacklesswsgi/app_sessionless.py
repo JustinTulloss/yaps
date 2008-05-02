@@ -254,5 +254,5 @@ if __name__ == '__main__':
     exc_wrapped.debug_mode = True
     import wsgiref.validate
     verify = wsgiref.validate.validator(exc_wrapped)
-    s = stacklesswsgi.Server(('127.0.0.1', 8080), verify)
+    s = stacklesswsgi.Server(('127.0.0.1', 8002), verify)
     s.start()
