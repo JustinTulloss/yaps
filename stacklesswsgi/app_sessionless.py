@@ -39,7 +39,9 @@
 #   http://www.tismer.com/mailman/listinfo/stackless
 #
 
-import stackless
+import sys
+sys.path.insert(0, '../dstack')
+import dstack
 import random
 import md5
 import time
@@ -84,7 +86,9 @@ class SessionlessApp(object):
         # to the HTTP client from the controller to the application. This is
         # because the application must return when the data is sent, but the
         # controller invocation may live longer.
-        ch = stackless.channel()
+        #ch = stackless.channel()
+        dstack.node.make_channel('continuation')
+        ch = dstack.node.get_channel('continuation')
         parameters = parse_qs(environ['QUERY_STRING'])
         if '__wc' in parameters:
             # We have a continuation id, see if we can find a suspended
@@ -113,7 +117,7 @@ class SessionlessApp(object):
             # http request. The SessionlessRequest instance is a callable,
             # a call on it will run the controller.
             req = SessionlessRequest(self, ch, controller, parameters)
-            stackless.tasklet(req)()
+            Tasklet(req)()
         
         # Now, wait for the controller to return some data. This can happen
         # in two ways - the controller simply returns (see SessionlessRequest)
@@ -132,7 +136,8 @@ class SessionlessApp(object):
         """Given an id, creates a channel and registers it in the continuation
         map with that id. Returns the channel, which will we will send() on when
         a continuing http request arrives."""
-        ch = stackless.channel()
+        dstack.node.make_channel('continuation'+id)
+        ch = dstack.node.get_channel('continuation'+id)
         self.continuations[id] = (time.time(), ch)
         return ch
     
@@ -254,5 +259,5 @@ if __name__ == '__main__':
     exc_wrapped.debug_mode = True
     import wsgiref.validate
     verify = wsgiref.validate.validator(exc_wrapped)
-    s = stacklesswsgi.Server(('127.0.0.1', 8002), verify)
+    s = stacklesswsgi.Server(('127.0.0.1', int(sys.argv[1])), verify)
     s.start()

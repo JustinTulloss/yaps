@@ -441,16 +441,20 @@ def MyTasklet(i):
 def main():
     import time
     start = time.time()
-    node.start(4756, 'nascent:6789')
-    #node.start(4587)
+    #node.start(4756, 'nascent:6789')
+    node.start(4587)
 
     #for i in xrange(0, 5):
     #    t = Tasklet(MyTasklet)(i)
 
+    """
     node.make_channel('ping_channel')
     node.make_channel('pong_channel')
     Tasklet(Ping)()
     Tasklet(Pong)()
+    """
+    for i in xrange(1, 500):
+        (MyTasklet)(i)
 
     print "All tasklets created in %f" % (time.time() - start)
 
